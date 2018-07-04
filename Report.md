@@ -14,7 +14,7 @@
 
 #### 乱序执行
 
-​	现代CPU具有乱序执行以及预测执行的功能，当CPU无法确定下一条指令是否一定需要执行时，会进行分支预测（记录过去程序跳转的结果并用它来推测下一条可能被执行的指令），并根据预测的结果进行乱序执行。如果预测正确，执行指令的结果可以立即使用；如果不正确，CPU通过reoder buffer回滚操作结果。![图1](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-161632@2x.png)
+​	现代CPU具有乱序执行以及预测执行的功能，当CPU无法确定下一条指令是否一定需要执行时，会进行分支预测（记录过去程序跳转的结果并用它来推测下一条可能被执行的指令），并根据预测的结果进行乱序执行。如果预测正确，执行指令的结果可以立即使用；如果不正确，CPU通过reoder buffer回滚操作结果。![图1](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-161632@2x.png)
 
 ​	如上图所示，Intel的CPU体系结构中，流水线由前端（Frontend）、执行引擎（Execution Engine）和内存子系统（Memory System）组成。前端模块将x86指令从存储器中读取出来并解码成微操作（micro operations, $\mu$OP），$\mu$OP接着被发送给执行引擎，在这里实现了乱序执行。如上图：执行引擎中的重新排序缓冲区(reorder buffer）负责寄存器分配、寄存器重命名和将结果提交到软件可见的寄存器等等。当分支预测不正确时，重新排序缓冲区会被清除以及保留站会被重新初始化。
 
@@ -32,7 +32,7 @@ raise_exception();//触发了一个异常，导致控制流不会执行异常之
 access(probe_array[data*4096]);//由于乱序执行，CPU实际上会执行异常指令之后的指令
 ```
 
-​	该示例代码在理论上不会访问`probal_array`数组，因为异常会立即陷入内核并终止该应用程序，但是由于乱序执行，CPU可能已经执行了异常指令之后的指令。当然，虽然执行了，但是指令并没有造成软件可见的影响，指令的执行结果并没有体现到软件可见的寄存器或者memory里，从软件工程师的角度看不到这些指令的执行，从寄存器和memory上也看不到指令产生的变化。但是从CPU微架构来看，发生了副作用——乱序执行过程中，加载内存值到寄存器同时也会把该值保存到cache中。当CPU回滚，丢弃乱序执行的结果时，cache中存储的内容并没有被丢弃。这时就可以发动微架构侧信道攻击的方法，比如——Flush+Reload，来检测指定的内存地址的数据是否被存到cache了，这样使得内存的信息变得对用户可见。![](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-161711@2x.png)
+​	该示例代码在理论上不会访问`probal_array`数组，因为异常会立即陷入内核并终止该应用程序，但是由于乱序执行，CPU可能已经执行了异常指令之后的指令。当然，虽然执行了，但是指令并没有造成软件可见的影响，指令的执行结果并没有体现到软件可见的寄存器或者memory里，从软件工程师的角度看不到这些指令的执行，从寄存器和memory上也看不到指令产生的变化。但是从CPU微架构来看，发生了副作用——乱序执行过程中，加载内存值到寄存器同时也会把该值保存到cache中。当CPU回滚，丢弃乱序执行的结果时，cache中存储的内容并没有被丢弃。这时就可以发动微架构侧信道攻击的方法，比如——Flush+Reload，来检测指定的内存地址的数据是否被存到cache了，这样使得内存的信息变得对用户可见。![](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-161711@2x.png)
 
 ​	回到示例代码，`probe_array`是一个按照4KB字节组织的数组，改变data的值可以按照4KB大小来遍历访问该数组。假如——在乱序执行时访问了`data`变量指定的`probe_array`数组内的某个4K内存块，那么`probe_array`数组对应的页的数据会加载导cache中，接下来只要利用flush+reload扫描数组中每个页面的cache情况就可以反推出`data`的值——因为`data`的值和`probe_array`的页面是一一对应的（Intel处理器中，page size之间的cache状态是完全独立的）。这样`data`的值就被泄漏给了我们。
 
@@ -50,7 +50,7 @@ access(probe_array[data*4096]);//由于乱序执行，CPU实际上会执行异�
 
    ​	我们需要把执行瞬态指令序列后，CPU微结构状态变化的信息转换为相应的体系结构状态。从这些状态中“推导出”被保护的数据。
 
-![](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-161721@2x.png)
+![](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-161721@2x.png)
 
 ​	如何构建这样的隐蔽通道呢？前文提到的缓存攻击技术就是一种办法。在隐蔽通道的发送端，瞬态指令序列会访问一个普通内存地址，从而导致地址的数据被加载到了cache（为了加速后续访问）。然后，接收端可以通过测量内存地址的访问时间来监视数据是否已加载到缓存中。因此，发送端可以通过访问内存地址（会加载到cache中）传递bit “1”的信息，或者通过不访问内存地址（不会加载到cache中）来发送bit “0”信息。而接收端可以通过监视cache的信息来接收这个bit “0”或者bit “1”的信息。
 
@@ -62,7 +62,7 @@ access(probe_array[data*4096]);//由于乱序执行，CPU实际上会执行异�
 
 - Linux ubuntu 4.4.0版本内核     16.04版本系统
 - 已安装meltdown补丁，后增加了启动参数nopti
-  ![](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-163100@2x.png)
+  ![](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-163100@2x.png)
 
 ### 具体实现
 
@@ -92,7 +92,7 @@ $ ./MeltdownAttack
 
 运行10次MeltdownAttack程序得到的结果如下：
 
-![](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-171548@2x.png)，![QQ20180704-171658@2x](/Users/Flint/Desktop/EasyAiMegumi/2018spring/OSH/lab04/QQ20180704-171658@2x.png)
+![](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-171548@2x.png)，![QQ20180704-171658@2x](https://github.com/OSH-2018/4-FlintNT/edit/master/QQ20180704-171658@2x.png)
 
 结果比较符合预期。
 
